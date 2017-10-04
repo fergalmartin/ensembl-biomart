@@ -58,5 +58,4 @@ sub get_DBAdaptor {
   return Bio::EnsEMBL::Registry->get_DBAdaptor($species, $type);
 }
 
-
 1;
