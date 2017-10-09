@@ -101,19 +101,17 @@ sub pipeline_analyses {
                        'base_dir' => $self->o('base_dir'),
                        'registry' => $self->o('registry'), },
         -flow_into => { 
-          1  => WHEN(
-            '(#dataset# ne "dmelanogaster")' => [ 'AddExtraMartIndexesExternalFeatures', 'AddExtraMartIndexesAnnotatedFeatures', 'AddExtraMartIndexesMiRNATargetFeatures', 'AddExtraMartIndexesMotifFeatures', 'AddExtraMartIndexesRegulatoryFeatures' ],
+          '1->A' => WHEN(
+            '(#dataset# ne "dmelanogaster")' => [ 'AddExtraMartIndexesExternalFeatures', 'AddExtraMartIndexesPeaks', 'AddExtraMartIndexesMiRNATargetFeatures', 'AddExtraMartIndexesMotifFeatures', 'AddExtraMartIndexesRegulatoryFeatures' ],
             ELSE 'AddExtraMartIndexesExternalFeatures',
           ),
-#          1 => [ 'AddExtraMartIndexesExternalFeatures', 'AddExtraMartIndexesAnnotatedFeatures', 'AddExtraMartIndexesMiRNATargetFeatures', 'AddExtraMartIndexesMotifFeatures', 'AddExtraMartIndexesRegulatoryFeatures' ],
-          2 => ['tidy_tables','optimize','generate_meta_external_features'] },
+          'A->2' => 'tidy_tables' },
         -meadow_type => 'LOCAL'
     },
     {
       -logic_name  => 'tidy_tables',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => [ 'AddExtraMartIndexesExternalFeatures', 'AddExtraMartIndexesAnnotatedFeatures', 'AddExtraMartIndexesMiRNATargetFeatures', 'AddExtraMartIndexesMotifFeatures', 'AddExtraMartIndexesRegulatoryFeatures'],
       -parameters  => {
         'cmd' =>
 'perl #base_dir#/scripts/tidy_tables.pl -user #user# -pass #pass# -port #port# -host #host# -mart #mart#',
@@ -123,7 +121,8 @@ sub pipeline_analyses {
         'host'     => $self->o('host'),
         'port'     => $self->o('port'),
         'base_dir' => $self->o('base_dir') },
-      -analysis_capacity => 1
+      -analysis_capacity => 1,
+      -flow_into => ['optimize'],
     },
     {
       -logic_name        => 'AddExtraMartIndexesExternalFeatures',
@@ -143,12 +142,12 @@ sub pipeline_analyses {
       -rc_name           => 'default',
     },
     {
-      -logic_name        => 'AddExtraMartIndexesAnnotatedFeatures',
+      -logic_name        => 'AddExtraMartIndexesPeaks',
       -module            => 'Bio::EnsEMBL::EGPipeline::VariationMart::CreateMartIndexes',
       -parameters        => {
                               tables_dir => $self->o('tables_dir'),
-                              table => 'annotated_feature__main',
-                              mart_table_prefix => '#dataset#'."_"."annotated_feature",
+                              table => 'peak__main',
+                              mart_table_prefix => '#dataset#'."_"."peak",
                               mart_host => $self->o('host'),
                               mart_port => $self->o('port'),
                               mart_user => $self->o('user'),
@@ -214,7 +213,6 @@ sub pipeline_analyses {
       -logic_name  => 'optimize',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => [ 'tidy_tables'],
       -parameters  => {
         'cmd' =>
 'mysqlcheck -h#host# -u#user# -p#pass# -P#port# --optimize "#mart#"',
@@ -224,13 +222,13 @@ sub pipeline_analyses {
         'host' => $self->o('host'),
         'port' => $self->o('port')
         },
-      -analysis_capacity => 1
+      -analysis_capacity => 1,
+      -flow_into => ['generate_meta_external_features'],
     },
     {
       -logic_name  => 'generate_meta_external_features',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => ['generate_names','optimize'],
       -parameters  => {
         'cmd' =>
         'perl #base_dir#/scripts/generate_meta.pl -user #user# -pass #pass# -port #port# -host #host# -dbname #mart# -template #template# -ds_basename #base_name# -template_name #template_name# -genomic_features_dbname #genomic_features_mart# -max_dropdown #max_dropdown#',
@@ -246,27 +244,26 @@ sub pipeline_analyses {
                        'max_dropdown' => $self->o('max_dropdown'),
                        'base_name' => 'external_feature' },
       -analysis_capacity => 1,
-      -flow_into => ['generate_meta_annotated_features'],
+      -flow_into => ['generate_meta_peaks'],
     },
     {
-      -logic_name  => 'generate_meta_annotated_features',
+      -logic_name  => 'generate_meta_peaks',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => ['generate_names','optimize'],
       -parameters  => {
         'cmd' =>
         'perl #base_dir#/scripts/generate_meta.pl -user #user# -pass #pass# -port #port# -host #host# -dbname #mart# -template #template# -ds_basename #base_name# -template_name #template_name# -genomic_features_dbname #genomic_features_mart# -max_dropdown #max_dropdown#',
                        'mart'     => $self->o('mart'),
-                       'template'     => $self->o('base_dir').'/scripts/templates/annotated_feature_template_template.xml',
+                       'template'     => $self->o('base_dir').'/scripts/templates/peak_template_template.xml',
                        'user'     => $self->o('user'),
                        'pass'     => $self->o('pass'),
                        'host'     => $self->o('host'),
                        'port'     => $self->o('port'),
                        'base_dir' => $self->o('base_dir'),
-                       'template_name' => 'annotated_features',
+                       'template_name' => 'peaks',
                        'genomic_features_mart' => $self->o('genomic_features_mart'),
                        'max_dropdown' => $self->o('max_dropdown'),
-                       'base_name' => 'annotated_feature' },
+                       'base_name' => 'peak' },
       -analysis_capacity => 1,
       -flow_into => ['generate_meta_mirna_target_features']
     },
@@ -274,7 +271,6 @@ sub pipeline_analyses {
       -logic_name  => 'generate_meta_mirna_target_features',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => ['generate_names','optimize'],
       -parameters  => {
         'cmd' =>
         'perl #base_dir#/scripts/generate_meta.pl -user #user# -pass #pass# -port #port# -host #host# -dbname #mart# -template #template# -ds_basename #base_name# -template_name #template_name# -genomic_features_dbname #genomic_features_mart# -max_dropdown #max_dropdown#',
@@ -296,7 +292,6 @@ sub pipeline_analyses {
       -logic_name  => 'generate_meta_motif_features',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => ['generate_names','optimize'],
       -parameters  => {
         'cmd' =>
         'perl #base_dir#/scripts/generate_meta.pl -user #user# -pass #pass# -port #port# -host #host# -dbname #mart# -template #template# -ds_basename #base_name# -template_name #template_name# -genomic_features_dbname #genomic_features_mart# -max_dropdown #max_dropdown#',
@@ -318,7 +313,6 @@ sub pipeline_analyses {
       -logic_name  => 'generate_meta_regulatory_features',
       -module      => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
       -meadow_type => 'LSF',
-      -wait_for    => ['generate_names','optimize'],
       -parameters  => {
         'cmd' =>
         'perl #base_dir#/scripts/generate_meta.pl -user #user# -pass #pass# -port #port# -host #host# -dbname #mart# -template #template# -ds_basename #base_name# -template_name #template_name# -genomic_features_dbname #genomic_features_mart# -max_dropdown #max_dropdown#',
